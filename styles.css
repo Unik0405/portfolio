@@ -129,6 +129,14 @@ body {
   pointer-events: none;
 }
 
+.page-shell.single {
+  grid-template-columns: 1fr;
+}
+
+.page-shell.single::before {
+  display: none;
+}
+
 canvas {
   width: 100%;
   height: auto;
