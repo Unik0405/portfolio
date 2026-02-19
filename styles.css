@@ -6,9 +6,14 @@
   --muted: #b3b3b3;
   --accent: #d7a46c;
   --radius: 0px;
-  --page-gap: 16px;
+  --page-gap: 0px;
   --body-font: "Work Sans", sans-serif;
   --heading-font: "Libre Caslon Text", serif;
+}
+
+html,
+body {
+  height: 100%;
 }
 
 * {
@@ -21,14 +26,15 @@ body {
   font-family: var(--body-font);
   color: var(--ink);
   background: var(--bg);
-  min-height: 100vh;
+  overflow: hidden;
 }
 
 .viewer {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
-  gap: 24px;
-  padding: 40px 24px 60px;
+  grid-template-rows: auto 1fr auto;
+  gap: 16px;
+  padding: 24px;
 }
 
 .viewer-header {
@@ -41,7 +47,7 @@ body {
 
 .title h1 {
   font-family: var(--heading-font);
-  font-size: clamp(2.4rem, 3vw, 3.2rem);
+  font-size: clamp(2.2rem, 3vw, 3rem);
   letter-spacing: 0.02em;
 }
 
@@ -97,22 +103,26 @@ body {
 .book {
   position: relative;
   background: transparent;
-  border-radius: 0;
   padding: 0;
-  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
   overflow: hidden;
 }
 
 .page-shell {
-  --page-gap: 16px;
   background: transparent;
   border-radius: 0;
   padding: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--page-gap);
-  align-items: start;
+  align-items: center;
+  justify-items: center;
   position: relative;
+  width: 100%;
+  height: 100%;
 }
 
 .page-shell::before {
@@ -164,7 +174,7 @@ canvas.is-empty {
 .viewer-footer {
   color: var(--muted);
   text-align: center;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 @media (max-width: 900px) {
@@ -175,7 +185,7 @@ canvas.is-empty {
 
 @media (max-width: 600px) {
   .viewer {
-    padding: 28px 18px 48px;
+    padding: 18px;
   }
 
   .controls {

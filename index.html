@@ -45,6 +45,7 @@
     const prevBtn = document.getElementById("prev");
     const nextBtn = document.getElementById("next");
     const loadingEl = document.getElementById("loading");
+    const bookEl = document.getElementById("book");
     const pageShell = document.getElementById("page-shell");
     const leftCanvas = document.getElementById("page-left");
     const rightCanvas = document.getElementById("page-right");
@@ -56,6 +57,7 @@
     let singlePage = 1;
     let renderToken = 0;
     let lastModeSingle = false;
+    let pageAspect = 1;
 
     const screenSingle = () => window.matchMedia("(max-width: 900px)").matches;
     const useSingleView = () => screenSingle();
@@ -63,7 +65,7 @@
     const getGap = () => {
       const gapValue = getComputedStyle(pageShell).getPropertyValue("--page-gap");
       const gap = parseFloat(gapValue);
-      return Number.isFinite(gap) ? gap : 20;
+      return Number.isFinite(gap) ? gap : 0;
     };
 
     const maxSpreadIndex = () => Math.floor((pdfDoc?.numPages || 0) / 2);
@@ -132,7 +134,9 @@
       if (singleMode) {
         statusEl.textContent = `Page ${singlePage} of ${totalPages}`;
       } else {
-        statusEl.textContent = `Pages ${getLeftPage()}-${getRightPage()} of ${totalPages}`;
+        const leftPage = getLeftPage();
+        const rightPage = Math.min(getRightPage(), totalPages);
+        statusEl.textContent = `Pages ${leftPage}-${rightPage} of ${totalPages}`;
       }
     };
 
@@ -147,7 +151,10 @@
 
       const gap = getGap();
       const availableWidth = pageShell.clientWidth - (singleMode ? 0 : gap);
-      const pageWidth = singleMode ? availableWidth : availableWidth / 2;
+      const availableHeight = pageShell.clientHeight || bookEl.clientHeight || window.innerHeight;
+      const pageWidthByWidth = singleMode ? availableWidth : availableWidth / 2;
+      const pageWidthByHeight = availableHeight * pageAspect;
+      const pageWidth = Math.max(1, Math.min(pageWidthByWidth, pageWidthByHeight));
 
       if (singleMode) {
         rightCanvas.classList.add("is-hidden");
@@ -228,8 +235,12 @@
 
     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
     pdfjsLib.getDocument(pdfUrl).promise
-      .then((pdf) => {
+      .then(async (pdf) => {
         pdfDoc = pdf;
+        const samplePage = await pdfDoc.getPage(1);
+        const viewport = samplePage.getViewport({ scale: 1 });
+        pageAspect = viewport.width / viewport.height;
+
         spreadIndex = 0;
         singlePage = 1;
         lastModeSingle = useSingleView();
