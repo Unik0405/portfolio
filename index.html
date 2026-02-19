@@ -52,8 +52,10 @@
     const rightCtx = rightCanvas.getContext("2d");
 
     let pdfDoc = null;
-    let currentPage = 0;
+    let spreadIndex = 0;
+    let singlePage = 1;
     let renderToken = 0;
+    let lastModeSingle = false;
 
     const screenSingle = () => window.matchMedia("(max-width: 900px)").matches;
     const useSingleView = () => screenSingle();
@@ -62,6 +64,22 @@
       const gapValue = getComputedStyle(pageShell).getPropertyValue("--page-gap");
       const gap = parseFloat(gapValue);
       return Number.isFinite(gap) ? gap : 20;
+    };
+
+    const maxSpreadIndex = () => Math.floor((pdfDoc?.numPages || 0) / 2);
+    const getLeftPage = () => spreadIndex * 2;
+    const getRightPage = () => getLeftPage() + 1;
+
+    const syncMode = () => {
+      const nowSingle = useSingleView();
+      if (nowSingle !== lastModeSingle) {
+        if (nowSingle) {
+          singlePage = Math.max(1, getLeftPage());
+        } else {
+          spreadIndex = Math.floor(singlePage / 2);
+        }
+        lastModeSingle = nowSingle;
+      }
     };
 
     const renderBlank = (canvas, width, height) => {
@@ -100,9 +118,8 @@
     const updateControls = () => {
       const totalPages = pdfDoc?.numPages || 0;
       const singleMode = useSingleView();
-      const lastLeftPage = totalPages % 2 === 0 ? totalPages : Math.max(0, totalPages - 1);
-      const atStart = singleMode ? currentPage <= 1 : currentPage <= 0;
-      const atEnd = singleMode ? currentPage >= totalPages : currentPage >= lastLeftPage;
+      const atStart = singleMode ? singlePage <= 1 : spreadIndex <= 0;
+      const atEnd = singleMode ? singlePage >= totalPages : spreadIndex >= maxSpreadIndex();
 
       prevBtn.disabled = atStart;
       nextBtn.disabled = atEnd;
@@ -113,9 +130,9 @@
       }
 
       if (singleMode) {
-        statusEl.textContent = `Page ${Math.max(1, currentPage)} of ${totalPages}`;
+        statusEl.textContent = `Page ${singlePage} of ${totalPages}`;
       } else {
-        statusEl.textContent = `Pages ${currentPage}-${currentPage + 1}`;
+        statusEl.textContent = `Pages ${getLeftPage()}-${getRightPage()} of ${totalPages}`;
       }
     };
 
@@ -124,6 +141,7 @@
       const token = ++renderToken;
       loadingEl.classList.add("is-visible");
 
+      syncMode();
       const singleMode = useSingleView();
       pageShell.classList.toggle("single", singleMode);
 
@@ -133,12 +151,12 @@
 
       if (singleMode) {
         rightCanvas.classList.add("is-hidden");
-        await renderPage(Math.max(1, currentPage), leftCanvas, leftCtx, pageWidth);
+        await renderPage(singlePage, leftCanvas, leftCtx, pageWidth);
         if (token !== renderToken) return;
       } else {
         rightCanvas.classList.remove("is-hidden");
-        const leftPageNumber = currentPage;
-        const rightPageNumber = currentPage + 1;
+        const leftPageNumber = getLeftPage();
+        const rightPageNumber = getRightPage();
 
         if (leftPageNumber === 0) {
           const rightSize = await renderPage(rightPageNumber, rightCanvas, rightCtx, pageWidth);
@@ -160,31 +178,32 @@
       loadingEl.classList.remove("is-visible");
     };
 
-    const clampPage = () => {
+    const clampState = () => {
       if (!pdfDoc) return;
-      const totalPages = pdfDoc.numPages;
       if (useSingleView()) {
-        currentPage = Math.max(1, Math.min(currentPage, totalPages));
+        singlePage = Math.max(1, Math.min(singlePage, pdfDoc.numPages));
       } else {
-        const lastLeftPage = totalPages % 2 === 0 ? totalPages : Math.max(0, totalPages - 1);
-        currentPage = Math.max(0, Math.min(currentPage, lastLeftPage));
-        if (currentPage % 2 !== 0) {
-          currentPage -= 1;
-        }
+        spreadIndex = Math.max(0, Math.min(spreadIndex, maxSpreadIndex()));
       }
     };
 
     prevBtn.addEventListener("click", () => {
-      const step = useSingleView() ? 1 : 2;
-      currentPage = currentPage - step;
-      clampPage();
+      if (useSingleView()) {
+        singlePage -= 1;
+      } else {
+        spreadIndex -= 1;
+      }
+      clampState();
       renderSpread();
     });
 
     nextBtn.addEventListener("click", () => {
-      const step = useSingleView() ? 1 : 2;
-      currentPage = currentPage + step;
-      clampPage();
+      if (useSingleView()) {
+        singlePage += 1;
+      } else {
+        spreadIndex += 1;
+      }
+      clampState();
       renderSpread();
     });
 
@@ -201,7 +220,8 @@
     window.addEventListener("resize", () => {
       if (resizeTimer) window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
-        clampPage();
+        syncMode();
+        clampState();
         renderSpread();
       }, 150);
     });
@@ -210,8 +230,10 @@
     pdfjsLib.getDocument(pdfUrl).promise
       .then((pdf) => {
         pdfDoc = pdf;
-        currentPage = 0;
-        clampPage();
+        spreadIndex = 0;
+        singlePage = 1;
+        lastModeSingle = useSingleView();
+        clampState();
         renderSpread();
       })
       .catch((error) => {
