@@ -52,7 +52,7 @@
     const rightCtx = rightCanvas.getContext("2d");
 
     let pdfDoc = null;
-    let currentPage = 1;
+    let currentPage = 0;
     let renderToken = 0;
 
     const screenSingle = () => window.matchMedia("(max-width: 900px)").matches;
@@ -73,7 +73,7 @@
       const ctx = canvas.getContext("2d");
       ctx.save();
       ctx.scale(outputScale, outputScale);
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, width, height);
       ctx.restore();
     };
@@ -100,8 +100,8 @@
     const updateControls = () => {
       const totalPages = pdfDoc?.numPages || 0;
       const singleMode = useSingleView();
-      const maxLeftPage = totalPages % 2 === 0 ? totalPages - 1 : totalPages;
-      const atStart = currentPage <= 1;
+      const maxLeftPage = Math.max(0, totalPages - 1);
+      const atStart = singleMode ? currentPage <= 1 : currentPage <= 0;
       const atEnd = singleMode ? currentPage >= totalPages : currentPage >= maxLeftPage;
 
       prevBtn.disabled = atStart;
@@ -113,7 +113,7 @@
       }
 
       if (singleMode) {
-        statusEl.textContent = `Page ${currentPage} of ${totalPages}`;
+        statusEl.textContent = `Page ${Math.max(1, currentPage)} of ${totalPages}`;
       } else {
         const rightPage = Math.min(currentPage + 1, totalPages);
         statusEl.textContent = `Pages ${currentPage}-${rightPage} of ${totalPages}`;
@@ -132,20 +132,24 @@
       const availableWidth = pageShell.clientWidth - (singleMode ? 0 : gap);
       const pageWidth = singleMode ? availableWidth : availableWidth / 2;
 
-      const leftSize = await renderPage(currentPage, leftCanvas, leftCtx, pageWidth);
-      if (token !== renderToken) return;
-
       if (singleMode) {
         rightCanvas.classList.add("is-hidden");
+        await renderPage(Math.max(1, currentPage), leftCanvas, leftCtx, pageWidth);
+        if (token !== renderToken) return;
       } else {
         rightCanvas.classList.remove("is-hidden");
+        const leftPageNumber = currentPage;
         const rightPageNumber = currentPage + 1;
-        if (rightPageNumber <= pdfDoc.numPages) {
-          rightCanvas.classList.remove("is-empty");
-          await renderPage(rightPageNumber, rightCanvas, rightCtx, pageWidth);
+
+        if (leftPageNumber === 0) {
+          const rightSize = await renderPage(rightPageNumber, rightCanvas, rightCtx, pageWidth);
+          if (token !== renderToken) return;
+          renderBlank(leftCanvas, rightSize.width, rightSize.height);
         } else {
-          rightCanvas.classList.add("is-empty");
-          renderBlank(rightCanvas, leftSize.width, leftSize.height);
+          await renderPage(leftPageNumber, leftCanvas, leftCtx, pageWidth);
+          if (token !== renderToken) return;
+          await renderPage(rightPageNumber, rightCanvas, rightCtx, pageWidth);
+          if (token !== renderToken) return;
         }
       }
 
@@ -156,20 +160,22 @@
     const clampPage = () => {
       if (!pdfDoc) return;
       const totalPages = pdfDoc.numPages;
-      const maxLeftPage = totalPages % 2 === 0 ? totalPages - 1 : totalPages;
-      const singleMode = useSingleView();
-      const maxPage = singleMode ? totalPages : maxLeftPage;
-      currentPage = Math.max(1, Math.min(currentPage, maxPage));
+      if (useSingleView()) {
+        currentPage = Math.max(1, Math.min(currentPage, totalPages));
+      } else {
+        currentPage = Math.max(0, Math.min(currentPage, Math.max(0, totalPages - 1)));
+      }
     };
 
     prevBtn.addEventListener("click", () => {
-      const step = useSingleView() ? 1 : 2;
-      currentPage = Math.max(1, currentPage - step);
+      const step = useSingleView() ? 1 : 1;
+      currentPage = currentPage - step;
+      clampPage();
       renderSpread();
     });
 
     nextBtn.addEventListener("click", () => {
-      const step = useSingleView() ? 1 : 2;
+      const step = useSingleView() ? 1 : 1;
       currentPage = currentPage + step;
       clampPage();
       renderSpread();
@@ -197,7 +203,7 @@
     pdfjsLib.getDocument(pdfUrl).promise
       .then((pdf) => {
         pdfDoc = pdf;
-        currentPage = 1;
+        currentPage = 0;
         clampPage();
         renderSpread();
       })
