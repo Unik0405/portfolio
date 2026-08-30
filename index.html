@@ -56,6 +56,16 @@
     let singlePage = 1;
     let renderToken = 0;
     let lastModeSingle = false;
+    const activeRenderTasks = new Set();
+
+    const isCancelled = (error) => error && error.name === "RenderingCancelledException";
+
+    const cancelActiveRenders = async () => {
+      const tasks = Array.from(activeRenderTasks);
+      activeRenderTasks.clear();
+      tasks.forEach((task) => task.cancel());
+      await Promise.all(tasks.map((task) => task.promise.catch(() => {})));
+    };
 
     const screenSingle = () => window.matchMedia("(max-width: 900px)").matches;
     const useSingleView = () => screenSingle();
@@ -108,7 +118,14 @@
       canvas.style.width = `${scaledViewport.width / outputScale}px`;
       canvas.style.height = `${scaledViewport.height / outputScale}px`;
 
-      await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+      const task = page.render({ canvasContext: ctx, viewport: scaledViewport });
+      activeRenderTasks.add(task);
+      try {
+        await task.promise;
+      } finally {
+        activeRenderTasks.delete(task);
+      }
+
       return {
         width: scaledViewport.width / outputScale,
         height: scaledViewport.height / outputScale,
@@ -141,43 +158,58 @@
     const renderSpread = async () => {
       if (!pdfDoc) return;
       const token = ++renderToken;
+      loadingEl.textContent = "Loading portfolio…";
       loadingEl.classList.add("is-visible");
 
-      syncMode();
-      const singleMode = useSingleView();
-      pageShell.classList.toggle("single", singleMode);
+      await cancelActiveRenders();
+      if (token !== renderToken) return;
 
-      const gap = getGap();
-      const availableWidth = pageShell.clientWidth - (singleMode ? 0 : gap);
-      const pageWidth = Math.max(1, singleMode ? availableWidth : availableWidth / 2);
+      let failed = false;
+      try {
+        syncMode();
+        const singleMode = useSingleView();
+        pageShell.classList.toggle("single", singleMode);
 
-      if (singleMode) {
-        rightCanvas.classList.add("is-hidden");
-        await renderPage(singlePage, leftCanvas, leftCtx, pageWidth);
-        if (token !== renderToken) return;
-      } else {
-        rightCanvas.classList.remove("is-hidden");
-        const leftPageNumber = getLeftPage();
-        const rightPageNumber = getRightPage();
+        const gap = getGap();
+        const availableWidth = pageShell.clientWidth - (singleMode ? 0 : gap);
+        const pageWidth = Math.max(1, singleMode ? availableWidth : availableWidth / 2);
 
-        if (leftPageNumber === 0) {
-          const rightSize = await renderPage(rightPageNumber, rightCanvas, rightCtx, pageWidth);
+        if (singleMode) {
+          rightCanvas.classList.add("is-hidden");
+          await renderPage(singlePage, leftCanvas, leftCtx, pageWidth);
           if (token !== renderToken) return;
-          renderBlank(leftCanvas, rightSize.width, rightSize.height);
         } else {
-          const leftSize = await renderPage(leftPageNumber, leftCanvas, leftCtx, pageWidth);
-          if (token !== renderToken) return;
-          if (rightPageNumber <= pdfDoc.numPages) {
-            await renderPage(rightPageNumber, rightCanvas, rightCtx, pageWidth);
+          rightCanvas.classList.remove("is-hidden");
+          const leftPageNumber = getLeftPage();
+          const rightPageNumber = getRightPage();
+
+          if (leftPageNumber === 0) {
+            const rightSize = await renderPage(rightPageNumber, rightCanvas, rightCtx, pageWidth);
             if (token !== renderToken) return;
+            renderBlank(leftCanvas, rightSize.width, rightSize.height);
           } else {
-            renderBlank(rightCanvas, leftSize.width, leftSize.height);
+            const leftSize = await renderPage(leftPageNumber, leftCanvas, leftCtx, pageWidth);
+            if (token !== renderToken) return;
+            if (rightPageNumber <= pdfDoc.numPages) {
+              await renderPage(rightPageNumber, rightCanvas, rightCtx, pageWidth);
+              if (token !== renderToken) return;
+            } else {
+              renderBlank(rightCanvas, leftSize.width, leftSize.height);
+            }
           }
         }
-      }
 
-      updateControls();
-      loadingEl.classList.remove("is-visible");
+        updateControls();
+      } catch (error) {
+        if (isCancelled(error)) return;
+        console.error(error);
+        failed = true;
+        loadingEl.textContent = "Unable to display this page. Please use the Open PDF link.";
+      } finally {
+        if (token === renderToken && !failed) {
+          loadingEl.classList.remove("is-visible");
+        }
+      }
     };
 
     const clampState = () => {
