@@ -22,19 +22,22 @@
       <div class="spinner" id="spinner" aria-hidden="true"></div>
     </div>
 
-    <header class="brand">
-      <p class="eyebrow">Architecture Portfolio</p>
-      <h1>Nikhil Narendiran</h1>
+    <!-- One reserved bar. Nothing floats over the page: at full height the
+         page occupies the whole stage, so any overlay would sit on artwork. -->
+    <header class="hud">
+      <div class="hud-brand">
+        <h1 class="hud-name">Nikhil Narendiran</h1>
+        <p class="hud-eyebrow">Architecture Portfolio</p>
+      </div>
+
+      <div class="hud-controls">
+        <button class="nav nav-prev" id="prev" type="button" aria-label="Previous pages"></button>
+        <span class="counter" id="status">Loading</span>
+        <button class="nav nav-next" id="next" type="button" aria-label="Next pages"></button>
+        <span class="hud-sep" aria-hidden="true"></span>
+        <a class="hud-link" href="Nikhil-Narendiran-Portfolio.pdf" target="_blank" rel="noopener">Open PDF</a>
+      </div>
     </header>
-
-    <button class="nav nav-prev" id="prev" type="button" aria-label="Previous pages"></button>
-    <button class="nav nav-next" id="next" type="button" aria-label="Next pages"></button>
-
-    <div class="hud">
-      <span class="counter" id="status">Loading</span>
-      <span class="hud-sep" aria-hidden="true"></span>
-      <a class="hud-link" href="Nikhil-Narendiran-Portfolio.pdf" target="_blank" rel="noopener">Open PDF</a>
-    </div>
   </main>
 
   <script>
