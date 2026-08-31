@@ -66,14 +66,29 @@
     const leftPageOf = (i) => (i === 0 ? null : i * 2);
     const rightPageOf = (i) => (i === 0 ? 1 : i * 2 + 1);
     const maxSpread = () => Math.floor(TOTAL / 2);
+    const spreadOf = (page) => (page <= 1 ? 0 : Math.floor(page / 2));
+    const pagesOf = (i) => [leftPageOf(i), rightPageOf(i)].filter((p) => p && p <= TOTAL);
+
+    // Keep the two modes pointing at the same page. Without this, switching
+    // modes snaps to the left page of the spread and quietly loses the
+    // reader's place every time the window crosses the breakpoint.
+    const syncToSpread = () => {
+      const pages = pagesOf(spreadIndex);
+      if (!pages.includes(singlePage)) singlePage = pages[0] || 1;
+    };
 
     const minIndex = () => (singleView() ? 1 : 0);
     const maxIndex = () => (singleView() ? TOTAL : maxSpread());
     const currentIndex = () => (singleView() ? singlePage : spreadIndex);
     const setIndex = (v) => {
       const clamped = Math.max(minIndex(), Math.min(v, maxIndex()));
-      if (singleView()) singlePage = clamped;
-      else spreadIndex = clamped;
+      if (singleView()) {
+        singlePage = clamped;
+        spreadIndex = spreadOf(clamped);
+      } else {
+        spreadIndex = clamped;
+        syncToSpread();
+      }
     };
 
     // Serve the half-size variant when that is all the display can resolve.
@@ -215,8 +230,8 @@
         const nowSingle = singleView();
         if (nowSingle !== wasSingle) {
           // Carry the reader's place across the mode switch.
-          if (nowSingle) singlePage = Math.max(1, leftPageOf(spreadIndex) || 1);
-          else spreadIndex = Math.floor(singlePage / 2);
+          if (nowSingle) syncToSpread();
+          else spreadIndex = spreadOf(singlePage);
           wasSingle = nowSingle;
         }
         render();
