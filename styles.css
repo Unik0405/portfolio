@@ -21,15 +21,19 @@ body {
   font-family: var(--body-font);
   color: var(--ink);
   background: var(--bg);
-  min-height: 100vh;
-  overflow: auto;
+  height: 100vh;
+  overflow: hidden;
 }
 
+/* Fixed-height shell: header and footer size to content, the book takes the
+   rest. Nothing scrolls -- a whole page is always on screen. */
 .viewer {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   display: grid;
-  gap: 24px;
-  padding: 40px 24px 60px;
+  grid-template-rows: auto 1fr auto;
+  gap: 16px;
+  padding: 20px 24px 14px;
 }
 
 .viewer-header {
@@ -100,22 +104,24 @@ body {
   background: transparent;
   padding: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: center;
-  overflow: visible;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .page-shell {
   background: transparent;
   border-radius: 0;
   padding: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
   gap: var(--page-gap);
-  align-items: start;
-  justify-items: stretch;
+  align-items: center;
+  justify-content: center;
   position: relative;
   width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .page-shell::before {
@@ -123,12 +129,18 @@ body {
 }
 
 .page-shell.single {
-  grid-template-columns: 1fr;
+  gap: 0;
 }
 
 canvas {
-  width: 100%;
+  width: auto;
   height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  /* JS sizes each canvas to fit the viewport. While a re-render is still in
+     flight the canvas can briefly hold its previous size; contain letterboxes
+     it instead of squashing the page out of its A3 ratio. */
+  object-fit: contain;
   display: block;
   background: transparent;
   border-radius: 0;
@@ -170,15 +182,10 @@ canvas.is-empty {
   font-size: 0.85rem;
 }
 
-@media (max-width: 900px) {
-  .page-shell {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 600px) {
   .viewer {
-    padding: 28px 18px 48px;
+    padding: 14px 14px 10px;
+    gap: 10px;
   }
 
   .controls {
@@ -187,5 +194,15 @@ canvas.is-empty {
 
   .status {
     width: 100%;
+  }
+
+  /* The hint mentions arrow keys, which do not exist on touch, and it costs
+     roughly 15% of the height a page could otherwise use. */
+  .viewer-footer {
+    display: none;
+  }
+
+  .viewer {
+    grid-template-rows: auto 1fr;
   }
 }

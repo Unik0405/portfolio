@@ -106,10 +106,11 @@
       ctx.restore();
     };
 
-    const renderPage = async (pageNumber, canvas, ctx, targetWidth) => {
+    const renderPage = async (pageNumber, canvas, ctx, box) => {
       const page = await pdfDoc.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 1 });
-      const scale = targetWidth / viewport.width;
+      // Contain: fit within both dimensions so a whole page is always on screen.
+      const scale = Math.min(box.width / viewport.width, box.height / viewport.height);
       const outputScale = window.devicePixelRatio || 1;
       const scaledViewport = page.getViewport({ scale: scale * outputScale });
 
@@ -172,11 +173,14 @@
 
         const gap = getGap();
         const availableWidth = pageShell.clientWidth - (singleMode ? 0 : gap);
-        const pageWidth = Math.max(1, singleMode ? availableWidth : availableWidth / 2);
+        const pageBox = {
+          width: Math.max(1, singleMode ? availableWidth : availableWidth / 2),
+          height: Math.max(1, pageShell.clientHeight),
+        };
 
         if (singleMode) {
           rightCanvas.classList.add("is-hidden");
-          await renderPage(singlePage, leftCanvas, leftCtx, pageWidth);
+          await renderPage(singlePage, leftCanvas, leftCtx, pageBox);
           if (token !== renderToken) return;
         } else {
           rightCanvas.classList.remove("is-hidden");
@@ -184,14 +188,14 @@
           const rightPageNumber = getRightPage();
 
           if (leftPageNumber === 0) {
-            const rightSize = await renderPage(rightPageNumber, rightCanvas, rightCtx, pageWidth);
+            const rightSize = await renderPage(rightPageNumber, rightCanvas, rightCtx, pageBox);
             if (token !== renderToken) return;
             renderBlank(leftCanvas, rightSize.width, rightSize.height);
           } else {
-            const leftSize = await renderPage(leftPageNumber, leftCanvas, leftCtx, pageWidth);
+            const leftSize = await renderPage(leftPageNumber, leftCanvas, leftCtx, pageBox);
             if (token !== renderToken) return;
             if (rightPageNumber <= pdfDoc.numPages) {
-              await renderPage(rightPageNumber, rightCanvas, rightCtx, pageWidth);
+              await renderPage(rightPageNumber, rightCanvas, rightCtx, pageBox);
               if (token !== renderToken) return;
             } else {
               renderBlank(rightCanvas, leftSize.width, leftSize.height);
