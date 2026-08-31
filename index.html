@@ -1,284 +1,355 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Nikhil Narendiran | Portfolio</title>
-  <meta name="description" content="Architect portfolio presented as a book-style viewer." />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Nikhil Narendiran | Architecture Portfolio</title>
+  <meta name="description" content="Selected architectural works by Nikhil Narendiran, presented as a book-style portfolio viewer." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:wght@400;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <!-- The cover is the first thing anyone sees; start fetching it immediately. -->
+  <link rel="preload" as="image" href="pages/01.webp" />
 </head>
 <body>
   <main class="viewer">
-    <header class="viewer-header">
-      <div class="title">
-        <p class="eyebrow">Architect Portfolio</p>
-        <h1>Nikhil Narendiran</h1>
+    <div class="stage" id="stage">
+      <div class="spread" id="spread">
+        <img class="page" id="page-left" alt="" decoding="async" />
+        <img class="page" id="page-right" alt="" decoding="async" />
       </div>
-      <div class="controls">
-        <button class="control-btn" id="prev" type="button">Previous</button>
-        <span class="status" id="status">Loading…</span>
-        <button class="control-btn" id="next" type="button">Next</button>
-        <a class="control-link" href="Nikhil-Narendiran-Portfolio.pdf" target="_blank" rel="noopener">Open PDF</a>
+      <div class="spinner" id="spinner" aria-hidden="true"></div>
+    </div>
+
+    <!-- One reserved bar. Nothing floats over the page: at full height the
+         page occupies the whole stage, so any overlay would sit on artwork. -->
+    <header class="hud">
+      <div class="hud-brand">
+        <h1 class="hud-name">Nikhil Narendiran</h1>
+        <p class="hud-eyebrow">Architecture Portfolio</p>
+      </div>
+
+      <div class="hud-controls">
+        <button class="nav nav-prev" id="prev" type="button" aria-label="Previous pages"></button>
+        <span class="counter" id="status">Loading</span>
+        <button class="nav nav-next" id="next" type="button" aria-label="Next pages"></button>
+        <span class="hud-sep" aria-hidden="true"></span>
+        <a class="hud-link" href="Nikhil-Narendiran-Portfolio.pdf" target="_blank" rel="noopener">Open PDF</a>
       </div>
     </header>
-
-    <section class="book" id="book">
-      <div class="page-shell" id="page-shell">
-        <canvas id="page-left"></canvas>
-        <canvas id="page-right"></canvas>
-      </div>
-      <div class="loading" id="loading">Loading portfolio…</div>
-    </section>
-
-    <footer class="viewer-footer">
-      <p>Use arrow keys or the buttons to flip pages. On smaller screens the view switches to single-page mode.</p>
-    </footer>
   </main>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
-    const pdfUrl = "Nikhil_Narendiran_portfolio.pdf";
+    // Pages are pre-rendered to WebP at build time (see tools/render-pages.py).
+    // Keep TOTAL in step with the files in pages/.
+    const TOTAL = 41;
+    const PAGE_W = 841.89;   // A3 portrait, in points
+    const PAGE_H = 1190.55;
+    const SPREAD_RATIO = (2 * PAGE_W) / PAGE_H;   // always two pages wide
+    const SMALL_SRC_WIDTH = 877;   // pixel width of the -sm variant
+
+    const stage = document.getElementById("stage");
+    const spread = document.getElementById("spread");
+    const leftImg = document.getElementById("page-left");
+    const rightImg = document.getElementById("page-right");
+    const spinner = document.getElementById("spinner");
     const statusEl = document.getElementById("status");
     const prevBtn = document.getElementById("prev");
     const nextBtn = document.getElementById("next");
-    const loadingEl = document.getElementById("loading");
-    const pageShell = document.getElementById("page-shell");
-    const leftCanvas = document.getElementById("page-left");
-    const rightCanvas = document.getElementById("page-right");
-    const leftCtx = leftCanvas.getContext("2d");
-    const rightCtx = rightCanvas.getContext("2d");
 
-    let pdfDoc = null;
     let spreadIndex = 0;
-    let singlePage = 1;
-    let renderToken = 0;
-    let lastModeSingle = false;
-    const activeRenderTasks = new Set();
 
-    const isCancelled = (error) => error && error.name === "RenderingCancelledException";
+    // Book layout: the cover sits alone on the right, then pages pair up.
+    const leftPageOf = (i) => (i === 0 ? null : i * 2);
+    const rightPageOf = (i) => (i === 0 ? 1 : i * 2 + 1);
+    const maxSpread = () => Math.floor(TOTAL / 2);
 
-    const cancelActiveRenders = async () => {
-      const tasks = Array.from(activeRenderTasks);
-      activeRenderTasks.clear();
-      tasks.forEach((task) => task.cancel());
-      await Promise.all(tasks.map((task) => task.promise.catch(() => {})));
+    const setIndex = (v) => {
+      spreadIndex = Math.max(0, Math.min(v, maxSpread()));
     };
 
-    const screenSingle = () => window.matchMedia("(max-width: 900px)").matches;
-    const useSingleView = () => screenSingle();
-
-    const getGap = () => {
-      const gapValue = getComputedStyle(pageShell).getPropertyValue("--page-gap");
-      const gap = parseFloat(gapValue);
-      return Number.isFinite(gap) ? gap : 0;
+    // Serve the half-size variant when that is all the display can resolve.
+    const srcFor = (page, cssWidth) => {
+      const needed = cssWidth * (window.devicePixelRatio || 1);
+      const variant = needed <= SMALL_SRC_WIDTH ? "-sm" : "";
+      return "pages/" + String(page).padStart(2, "0") + variant + ".webp";
     };
 
-    const maxSpreadIndex = () => Math.floor((pdfDoc?.numPages || 0) / 2);
-    const getLeftPage = () => spreadIndex * 2;
-    const getRightPage = () => getLeftPage() + 1;
+    const layout = () => {
+      const W = stage.clientWidth;
+      const H = stage.clientHeight;
+      // Contain: fit the height, fall back to the width when the window is
+      // narrower than the spread's fixed 1.41:1 shape.
+      let h = H;
+      let w = h * SPREAD_RATIO;
+      if (w > W) { w = W; h = w / SPREAD_RATIO; }
+      spread.style.width = Math.round(w) + "px";
+      spread.style.height = Math.round(h) + "px";
+      return w / 2;   // css width of one page
+    };
 
-    const syncMode = () => {
-      const nowSingle = useSingleView();
-      if (nowSingle !== lastModeSingle) {
-        if (nowSingle) {
-          singlePage = Math.max(1, getLeftPage());
-        } else {
-          spreadIndex = Math.floor(singlePage / 2);
-        }
-        lastModeSingle = nowSingle;
+    // Resolves once the bytes are in. Deliberately driven by the load event
+    // rather than img.decode(): decode() only settles when the image is ready
+    // to *paint*, so in a background or occluded tab it can hang indefinitely
+    // on an image that has already fully loaded, which would leave the spinner
+    // up and the controls dead.
+    const whenReady = (img) => new Promise((resolve) => {
+      if (img.complete && img.naturalWidth) {
+        resolve();
+        return;
       }
-    };
-
-    const renderBlank = (canvas, width, height) => {
-      const outputScale = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.floor(width * outputScale));
-      canvas.height = Math.max(1, Math.floor(height * outputScale));
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-      const ctx = canvas.getContext("2d");
-      ctx.save();
-      ctx.scale(outputScale, outputScale);
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, width, height);
-      ctx.restore();
-    };
-
-    const renderPage = async (pageNumber, canvas, ctx, box) => {
-      const page = await pdfDoc.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 1 });
-      // Contain: fit within both dimensions so a whole page is always on screen.
-      const scale = Math.min(box.width / viewport.width, box.height / viewport.height);
-      const outputScale = window.devicePixelRatio || 1;
-      const scaledViewport = page.getViewport({ scale: scale * outputScale });
-
-      canvas.width = Math.floor(scaledViewport.width);
-      canvas.height = Math.floor(scaledViewport.height);
-      canvas.style.width = `${scaledViewport.width / outputScale}px`;
-      canvas.style.height = `${scaledViewport.height / outputScale}px`;
-
-      const task = page.render({ canvasContext: ctx, viewport: scaledViewport });
-      activeRenderTasks.add(task);
-      try {
-        await task.promise;
-      } finally {
-        activeRenderTasks.delete(task);
-      }
-
-      return {
-        width: scaledViewport.width / outputScale,
-        height: scaledViewport.height / outputScale,
+      const done = () => {
+        img.removeEventListener("load", done);
+        img.removeEventListener("error", done);
+        resolve();
       };
+      img.addEventListener("load", done);
+      img.addEventListener("error", done);
+    });
+
+    const setPage = (img, page, cssWidth) => {
+      if (!page || page > TOTAL) {
+        img.removeAttribute("src");
+        img.classList.add("is-blank");
+        img.alt = "";
+        return null;
+      }
+      img.classList.remove("is-blank");
+      img.alt = "Portfolio page " + page;
+      const src = srcFor(page, cssWidth);
+      if (img.getAttribute("src") !== src) img.src = src;
+      // Worth asking for an early decode, but never worth waiting on.
+      if (img.decode) img.decode().catch(() => {});
+      return whenReady(img);
     };
 
-    const updateControls = () => {
-      const totalPages = pdfDoc?.numPages || 0;
-      const singleMode = useSingleView();
-      const atStart = singleMode ? singlePage <= 1 : spreadIndex <= 0;
-      const atEnd = singleMode ? singlePage >= totalPages : spreadIndex >= maxSpreadIndex();
+    const label = () => {
+      const l = leftPageOf(spreadIndex);
+      const r = Math.min(rightPageOf(spreadIndex), TOTAL);
+      if (l === null) return "Page " + r + " of " + TOTAL;
+      if (l >= TOTAL) return "Page " + TOTAL + " of " + TOTAL;
+      return l === r ? "Page " + l + " of " + TOTAL
+                     : "Pages " + l + "–" + r + " of " + TOTAL;
+    };
 
-      prevBtn.disabled = atStart;
-      nextBtn.disabled = atEnd;
+    const preload = (cssWidth) => {
+      [spreadIndex + 1, spreadIndex - 1]
+        .filter((i) => i >= 0 && i <= maxSpread())
+        .flatMap((i) => [leftPageOf(i), rightPageOf(i)])
+        .filter((p) => p && p >= 1 && p <= TOTAL)
+        .forEach((p) => { new Image().src = srcFor(p, cssWidth); });
+    };
 
-      if (!totalPages) {
-        statusEl.textContent = "Loading…";
+    let spinnerTimer = null;
+    const render = async () => {
+      const cssWidth = layout();
+      // Only show the spinner if decoding is slow enough to be noticed.
+      clearTimeout(spinnerTimer);
+      spinnerTimer = setTimeout(() => spinner.classList.add("is-visible"), 180);
+
+      const jobs = [
+        setPage(leftImg, leftPageOf(spreadIndex), cssWidth),
+        setPage(rightImg, rightPageOf(spreadIndex), cssWidth),
+      ];
+      // A stalled or failed image must never wedge the controls, so cap the
+      // wait and carry on regardless.
+      await Promise.race([
+        Promise.all(jobs.filter(Boolean)),
+        new Promise((r) => setTimeout(r, 3000)),
+      ]);
+
+      clearTimeout(spinnerTimer);
+      spinner.classList.remove("is-visible");
+      statusEl.textContent = label();
+      prevBtn.disabled = spreadIndex <= 0;
+      nextBtn.disabled = spreadIndex >= maxSpread();
+      preload(cssWidth);
+    };
+
+    /* --- zoom and pan --------------------------------------------------
+       A spread is fixed at 1.41:1, so on a phone each page lands around
+       180x254. Zoom is what makes that readable. */
+
+    const MAX_SCALE = 5;
+    const TAP_ZOOM = 2.5;
+
+    let scale = 1;
+    let tx = 0;
+    let ty = 0;
+
+    const applyTransform = () => {
+      spread.style.transform =
+        scale === 1 ? "" : "translate(" + tx + "px," + ty + "px) scale(" + scale + ")";
+      spread.classList.toggle("is-zoomed", scale > 1);
+    };
+
+    // The transform scales about the centre, so the box centre never moves;
+    // the untransformed centre is therefore just the rect centre less the pan.
+    const layoutCentre = () => {
+      const r = spread.getBoundingClientRect();
+      return { x: r.left + r.width / 2 - tx, y: r.top + r.height / 2 - ty };
+    };
+
+    // Keep the scaled spread covering its own box so it can never be panned
+    // off into empty space.
+    const clampPan = () => {
+      const w = parseFloat(spread.style.width) || 0;
+      const h = parseFloat(spread.style.height) || 0;
+      const mx = Math.max(0, (w * (scale - 1)) / 2);
+      const my = Math.max(0, (h * (scale - 1)) / 2);
+      tx = Math.min(mx, Math.max(-mx, tx));
+      ty = Math.min(my, Math.max(-my, ty));
+    };
+
+    // Once magnified past what the half-size file holds, fetch the full one.
+    let resTimer = null;
+    const ensureResolution = () => {
+      clearTimeout(resTimer);
+      resTimer = setTimeout(() => {
+        const pageW = (parseFloat(spread.style.width) || 0) / 2;
+        if (pageW * scale * (window.devicePixelRatio || 1) <= SMALL_SRC_WIDTH) return;
+        [[leftImg, leftPageOf(spreadIndex)], [rightImg, rightPageOf(spreadIndex)]]
+          .forEach(([img, page]) => {
+            if (!page || page > TOTAL) return;
+            const full = "pages/" + String(page).padStart(2, "0") + ".webp";
+            if (img.getAttribute("src") === full) return;
+            // Load it out of band and swap only once it is ready. Assigning
+            // src directly clears the visible bitmap, so the reader would
+            // watch the page blank out mid-zoom while the bigger file lands.
+            const pre = new Image();
+            pre.onload = () => { img.src = full; };
+            pre.src = full;
+          });
+      }, 120);
+    };
+
+    // Zoom about a screen point, keeping whatever is under it in place.
+    const zoomAbout = (px, py, next) => {
+      const s2 = Math.min(MAX_SCALE, Math.max(1, next));
+      const c = layoutCentre();
+      tx = px - c.x - ((px - c.x - tx) / scale) * s2;
+      ty = py - c.y - ((py - c.y - ty) / scale) * s2;
+      scale = s2;
+      if (scale === 1) { tx = 0; ty = 0; }
+      clampPan();
+      applyTransform();
+      ensureResolution();
+    };
+
+    const resetZoom = () => {
+      scale = 1;
+      tx = 0;
+      ty = 0;
+      applyTransform();
+    };
+
+    const pointers = new Map();
+    let pinchDist = 0;
+    let panLast = null;
+    let gestureStart = null;
+    let lastTap = 0;
+
+    stage.addEventListener("pointerdown", (e) => {
+      // Register first: capture is only an optimisation for tracking a finger
+      // that leaves the element, and it throws if the pointer is already gone.
+      // Letting that throw would abort the handler and kill the gesture.
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try { stage.setPointerCapture(e.pointerId); } catch (err) { /* best effort */ }
+      if (pointers.size === 1) {
+        panLast = { x: e.clientX, y: e.clientY };
+        gestureStart = { x: e.clientX, y: e.clientY };
+      } else if (pointers.size === 2) {
+        gestureStart = null;   // a pinch is never a swipe
+        const [a, b] = [...pointers.values()];
+        pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+      }
+    });
+
+    stage.addEventListener("pointermove", (e) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pointers.size >= 2) {
+        const [a, b] = [...pointers.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pinchDist > 0) {
+          zoomAbout((a.x + b.x) / 2, (a.y + b.y) / 2, scale * (dist / pinchDist));
+        }
+        pinchDist = dist;
+      } else if (scale > 1 && panLast) {
+        tx += e.clientX - panLast.x;
+        ty += e.clientY - panLast.y;
+        panLast = { x: e.clientX, y: e.clientY };
+        clampPan();
+        applyTransform();
+      }
+    });
+
+    const endPointer = (e) => {
+      if (!pointers.has(e.pointerId)) return;
+      const start = gestureStart;
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinchDist = 0;
+      if (pointers.size > 0) return;
+
+      panLast = null;
+      gestureStart = null;
+      if (!start) return;
+
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+
+      // A short press is a tap; two in quick succession toggle zoom.
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          zoomAbout(e.clientX, e.clientY, scale > 1 ? 1 : TAP_ZOOM);
+          lastTap = 0;
+        } else {
+          lastTap = now;
+        }
         return;
       }
 
-      if (singleMode) {
-        statusEl.textContent = `Page ${singlePage} of ${totalPages}`;
-      } else {
-        const leftPage = getLeftPage();
-        const rightPage = Math.min(getRightPage(), totalPages);
-        statusEl.textContent = `Pages ${leftPage}-${rightPage} of ${totalPages}`;
+      // Swipe turns the page only at rest; while zoomed a drag is a pan.
+      if (scale === 1 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+        step(dx < 0 ? 1 : -1);
       }
     };
 
-    const renderSpread = async () => {
-      if (!pdfDoc) return;
-      const token = ++renderToken;
-      loadingEl.textContent = "Loading portfolio…";
-      loadingEl.classList.add("is-visible");
+    stage.addEventListener("pointerup", endPointer);
+    stage.addEventListener("pointercancel", endPointer);
 
-      await cancelActiveRenders();
-      if (token !== renderToken) return;
+    // Trackpad pinch arrives as ctrl+wheel.
+    stage.addEventListener("wheel", (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      zoomAbout(e.clientX, e.clientY, scale * (1 - e.deltaY * 0.01));
+    }, { passive: false });
 
-      let failed = false;
-      try {
-        syncMode();
-        const singleMode = useSingleView();
-        pageShell.classList.toggle("single", singleMode);
+    const step = (delta) => { resetZoom(); setIndex(spreadIndex + delta); render(); };
 
-        const gap = getGap();
-        const availableWidth = pageShell.clientWidth - (singleMode ? 0 : gap);
-        const pageBox = {
-          width: Math.max(1, singleMode ? availableWidth : availableWidth / 2),
-          height: Math.max(1, pageShell.clientHeight),
-        };
+    prevBtn.addEventListener("click", () => step(-1));
+    nextBtn.addEventListener("click", () => step(1));
 
-        if (singleMode) {
-          rightCanvas.classList.add("is-hidden");
-          await renderPage(singlePage, leftCanvas, leftCtx, pageBox);
-          if (token !== renderToken) return;
-        } else {
-          rightCanvas.classList.remove("is-hidden");
-          const leftPageNumber = getLeftPage();
-          const rightPageNumber = getRightPage();
-
-          if (leftPageNumber === 0) {
-            const rightSize = await renderPage(rightPageNumber, rightCanvas, rightCtx, pageBox);
-            if (token !== renderToken) return;
-            renderBlank(leftCanvas, rightSize.width, rightSize.height);
-          } else {
-            const leftSize = await renderPage(leftPageNumber, leftCanvas, leftCtx, pageBox);
-            if (token !== renderToken) return;
-            if (rightPageNumber <= pdfDoc.numPages) {
-              await renderPage(rightPageNumber, rightCanvas, rightCtx, pageBox);
-              if (token !== renderToken) return;
-            } else {
-              renderBlank(rightCanvas, leftSize.width, leftSize.height);
-            }
-          }
-        }
-
-        updateControls();
-      } catch (error) {
-        if (isCancelled(error)) return;
-        console.error(error);
-        failed = true;
-        loadingEl.textContent = "Unable to display this page. Please use the Open PDF link.";
-      } finally {
-        if (token === renderToken && !failed) {
-          loadingEl.classList.remove("is-visible");
-        }
-      }
-    };
-
-    const clampState = () => {
-      if (!pdfDoc) return;
-      if (useSingleView()) {
-        singlePage = Math.max(1, Math.min(singlePage, pdfDoc.numPages));
-      } else {
-        spreadIndex = Math.max(0, Math.min(spreadIndex, maxSpreadIndex()));
-      }
-    };
-
-    prevBtn.addEventListener("click", () => {
-      if (useSingleView()) {
-        singlePage -= 1;
-      } else {
-        spreadIndex -= 1;
-      }
-      clampState();
-      renderSpread();
-    });
-
-    nextBtn.addEventListener("click", () => {
-      if (useSingleView()) {
-        singlePage += 1;
-      } else {
-        spreadIndex += 1;
-      }
-      clampState();
-      renderSpread();
-    });
-
-    window.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowRight") {
-        nextBtn.click();
-      }
-      if (event.key === "ArrowLeft") {
-        prevBtn.click();
-      }
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); step(1); }
+      if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); step(-1); }
+      if (e.key === "Home") { e.preventDefault(); resetZoom(); setIndex(0); render(); }
+      if (e.key === "End") { e.preventDefault(); resetZoom(); setIndex(maxSpread()); render(); }
+      if (e.key === "Escape") { e.preventDefault(); resetZoom(); }
     });
 
     let resizeTimer = null;
     window.addEventListener("resize", () => {
-      if (resizeTimer) window.clearTimeout(resizeTimer);
-      resizeTimer = window.setTimeout(() => {
-        syncMode();
-        clampState();
-        renderSpread();
-      }, 150);
+      resetZoom();   // the pan bounds belong to the old frame
+      layout();      // keep the frame correct straight away
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(render, 150);
     });
 
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    pdfjsLib.getDocument(pdfUrl).promise
-      .then((pdf) => {
-        pdfDoc = pdf;
-        spreadIndex = 0;
-        singlePage = 1;
-        lastModeSingle = useSingleView();
-        clampState();
-        renderSpread();
-      })
-      .catch((error) => {
-        console.error(error);
-        loadingEl.textContent = "Unable to load the portfolio. Please use the Open PDF link.";
-      });
+    render();
   </script>
 </body>
 </html>
-

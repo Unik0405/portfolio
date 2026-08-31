@@ -1,14 +1,12 @@
-﻿:root {
+:root {
   --bg: #000000;
-  --bg-elevated: #000000;
-  --page: #ffffff;
   --ink: #f5f5f5;
-  --muted: #b3b3b3;
+  --muted: #9a9a9a;
   --accent: #d7a46c;
-  --radius: 0px;
-  --page-gap: 0px;
-  --body-font: "Work Sans", sans-serif;
-  --heading-font: "Libre Caslon Text", serif;
+  --body-font: "Work Sans", system-ui, sans-serif;
+  --heading-font: "Libre Caslon Text", Georgia, serif;
+  --stage-pad: 12px;
+  --bar-h: 54px;
 }
 
 * {
@@ -17,192 +15,258 @@
   padding: 0;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   font-family: var(--body-font);
   color: var(--ink);
   background: var(--bg);
-  height: 100vh;
   overflow: hidden;
 }
 
-/* Fixed-height shell: header and footer size to content, the book takes the
-   rest. Nothing scrolls -- a whole page is always on screen. */
+/* The viewer owns the whole viewport: a stage for the page and one slim bar. */
 .viewer {
-  height: 100vh;
-  height: 100dvh;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 16px;
-  padding: 20px 24px 14px;
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
 }
 
-.viewer-header {
+/* The bar gets its own reserved strip; the stage takes everything above it,
+   so the page is never covered. */
+.stage {
+  position: absolute;
+  top: var(--stage-pad);
+  left: var(--stage-pad);
+  right: var(--stage-pad);
+  bottom: var(--bar-h);
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
+  /* Clip the spread when it is zoomed past its own box. */
+  overflow: hidden;
+  /* Claim the gestures: pinch, pan and swipe are all handled in script. */
+  touch-action: none;
+}
+
+/* JS sizes the spread to fit the stage; the pages just divide it. */
+.spread {
+  display: flex;
+  gap: 0;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.9);
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.spread.is-zoomed {
+  cursor: grab;
+}
+
+.spread.is-zoomed:active {
+  cursor: grabbing;
+}
+
+.page {
+  width: 50%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  /* Otherwise a pan gesture starts a native image drag. */
+  -webkit-user-drag: none;
+  user-select: none;
+  background: transparent;
+  opacity: 1;
+  transition: opacity 0.18s ease;
+}
+
+/* The blank facing the cover: keep the space, show nothing. */
+.page.is-blank {
+  visibility: hidden;
+}
+
+/* --- the bar ---------------------------------------------------------- */
+
+.hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--bar-h);
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 16px;
+  padding: 0 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.title h1 {
-  font-family: var(--heading-font);
-  font-size: clamp(2.2rem, 3vw, 3rem);
-  letter-spacing: 0.02em;
-}
-
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.3em;
-  font-size: 0.75rem;
-  color: var(--muted);
-  margin-bottom: 8px;
-}
-
-.controls {
+.hud-brand {
   display: flex;
-  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.hud-name {
+  font-family: var(--heading-font);
+  font-size: 1rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.hud-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.26em;
+  font-size: 0.58rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-controls {
+  display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
 
-.control-btn,
-.control-link {
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+.nav {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   background: transparent;
   color: var(--ink);
-  font-size: 0.85rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 10px 18px;
-  text-decoration: none;
   cursor: pointer;
-  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  flex-shrink: 0;
+  transition: opacity 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
-.control-btn:hover,
-.control-link:hover,
-.control-btn:focus-visible,
-.control-link:focus-visible {
-  border-color: var(--accent);
-  transform: translateY(-1px);
-}
-
-.control-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.status {
-  font-size: 0.9rem;
-  color: var(--muted);
-}
-
-.book {
-  position: relative;
-  background: transparent;
-  padding: 0;
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.page-shell {
-  background: transparent;
-  border-radius: 0;
-  padding: 0;
-  display: flex;
-  gap: var(--page-gap);
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-}
-
-.page-shell::before {
-  display: none;
-}
-
-.page-shell.single {
-  gap: 0;
-}
-
-canvas {
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
-  /* JS sizes each canvas to fit the viewport. While a re-render is still in
-     flight the canvas can briefly hold its previous size; contain letterboxes
-     it instead of squashing the page out of its A3 ratio. */
-  object-fit: contain;
-  display: block;
-  background: transparent;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-canvas.is-hidden {
-  display: none;
-}
-
-canvas.is-empty {
-  opacity: 0.5;
-}
-
-.loading {
+/* Chevrons drawn rather than typed, so they stay centred at any font size. */
+.nav::before {
+  content: "";
   position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1rem;
-  letter-spacing: 0.18em;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+}
+
+.nav-prev::before { transform: translate(-35%, -50%) rotate(135deg); }
+.nav-next::before { transform: translate(-65%, -50%) rotate(-45deg); }
+
+.nav:hover:not(:disabled),
+.nav:focus-visible:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.nav:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.counter {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 11ch;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.hud-sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.hud-link {
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  background: rgba(0, 0, 0, 0.75);
   color: var(--ink);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.hud-link:hover,
+.hud-link:focus-visible {
+  color: var(--accent);
+}
+
+.spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
 }
 
-.loading.is-visible {
+.spinner.is-visible {
   opacity: 1;
-  pointer-events: auto;
+  animation: spin 0.8s linear infinite;
 }
 
-.viewer-footer {
-  color: var(--muted);
-  text-align: center;
-  font-size: 0.85rem;
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-@media (max-width: 600px) {
-  .viewer {
-    padding: 14px 14px 10px;
+@media (prefers-reduced-motion: reduce) {
+  .page,
+  .spinner { transition: none; }
+  .spread { will-change: auto; }
+  .spinner.is-visible { animation: none; }
+}
+
+/* Phones: tighten the bar and drop the eyebrow, but keep the buttons --
+   swipe alone is not discoverable enough to be the only way through. */
+@media (max-width: 900px) {
+  :root {
+    --stage-pad: 8px;
+    --bar-h: 48px;
+  }
+
+  .hud {
+    padding: 0 12px;
     gap: 10px;
   }
 
-  .controls {
-    width: 100%;
-  }
+  .hud-eyebrow { display: none; }
 
-  .status {
-    width: 100%;
-  }
+  .hud-name { font-size: 0.9rem; }
 
-  /* The hint mentions arrow keys, which do not exist on touch, and it costs
-     roughly 15% of the height a page could otherwise use. */
-  .viewer-footer {
-    display: none;
-  }
+  .hud-controls { gap: 9px; }
 
-  .viewer {
-    grid-template-rows: auto 1fr;
+  .counter {
+    font-size: 0.7rem;
+    min-width: 0;
+  }
+}
+
+/* Very narrow: the name truncates so the controls and the PDF link survive
+   intact -- the download is the thing a visitor is most likely to want. */
+@media (max-width: 420px) {
+  .hud-brand { flex: 1 1 auto; }
+
+  .hud-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
