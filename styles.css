@@ -45,6 +45,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Clip the spread when it is zoomed past its own box. */
+  overflow: hidden;
+  /* Claim the gestures: pinch, pan and swipe are all handled in script. */
+  touch-action: none;
 }
 
 /* JS sizes the spread to fit the stage; the pages just divide it. */
@@ -52,6 +56,16 @@ body {
   display: flex;
   gap: 0;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.9);
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.spread.is-zoomed {
+  cursor: grab;
+}
+
+.spread.is-zoomed:active {
+  cursor: grabbing;
 }
 
 .page {
@@ -59,6 +73,9 @@ body {
   height: 100%;
   display: block;
   object-fit: contain;
+  /* Otherwise a pan gesture starts a native image drag. */
+  -webkit-user-drag: none;
+  user-select: none;
   background: transparent;
   opacity: 1;
   transition: opacity 0.18s ease;
@@ -213,6 +230,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .page,
   .spinner { transition: none; }
+  .spread { will-change: auto; }
   .spinner.is-visible { animation: none; }
 }
 
