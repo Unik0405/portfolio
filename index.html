@@ -1,284 +1,226 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Nikhil Narendiran | Portfolio</title>
-  <meta name="description" content="Architect portfolio presented as a book-style viewer." />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Nikhil Narendiran | Architecture Portfolio</title>
+  <meta name="description" content="Selected architectural works by Nikhil Narendiran, presented as a book-style portfolio viewer." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:wght@400;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <!-- The cover is the first thing anyone sees; start fetching it immediately. -->
+  <link rel="preload" as="image" href="pages/01.webp" />
 </head>
 <body>
   <main class="viewer">
-    <header class="viewer-header">
-      <div class="title">
-        <p class="eyebrow">Architect Portfolio</p>
-        <h1>Nikhil Narendiran</h1>
+    <div class="stage" id="stage">
+      <div class="spread" id="spread">
+        <img class="page" id="page-left" alt="" decoding="async" />
+        <img class="page" id="page-right" alt="" decoding="async" />
       </div>
-      <div class="controls">
-        <button class="control-btn" id="prev" type="button">Previous</button>
-        <span class="status" id="status">Loading…</span>
-        <button class="control-btn" id="next" type="button">Next</button>
-        <a class="control-link" href="Nikhil-Narendiran-Portfolio.pdf" target="_blank" rel="noopener">Open PDF</a>
-      </div>
+      <div class="spinner" id="spinner" aria-hidden="true"></div>
+    </div>
+
+    <header class="brand">
+      <p class="eyebrow">Architecture Portfolio</p>
+      <h1>Nikhil Narendiran</h1>
     </header>
 
-    <section class="book" id="book">
-      <div class="page-shell" id="page-shell">
-        <canvas id="page-left"></canvas>
-        <canvas id="page-right"></canvas>
-      </div>
-      <div class="loading" id="loading">Loading portfolio…</div>
-    </section>
+    <button class="nav nav-prev" id="prev" type="button" aria-label="Previous pages"></button>
+    <button class="nav nav-next" id="next" type="button" aria-label="Next pages"></button>
 
-    <footer class="viewer-footer">
-      <p>Use arrow keys or the buttons to flip pages. On smaller screens the view switches to single-page mode.</p>
-    </footer>
+    <div class="hud">
+      <span class="counter" id="status">Loading</span>
+      <span class="hud-sep" aria-hidden="true"></span>
+      <a class="hud-link" href="Nikhil-Narendiran-Portfolio.pdf" target="_blank" rel="noopener">Open PDF</a>
+    </div>
   </main>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
-    const pdfUrl = "Nikhil_Narendiran_portfolio.pdf";
+    // Pages are pre-rendered to WebP at build time (see tools/render-pages.py).
+    // Keep TOTAL in step with the files in pages/.
+    const TOTAL = 41;
+    const PAGE_W = 841.89;   // A3 portrait, in points
+    const PAGE_H = 1190.55;
+    const SMALL_SRC_WIDTH = 877;   // pixel width of the -sm variant
+
+    const stage = document.getElementById("stage");
+    const spread = document.getElementById("spread");
+    const leftImg = document.getElementById("page-left");
+    const rightImg = document.getElementById("page-right");
+    const spinner = document.getElementById("spinner");
     const statusEl = document.getElementById("status");
     const prevBtn = document.getElementById("prev");
     const nextBtn = document.getElementById("next");
-    const loadingEl = document.getElementById("loading");
-    const pageShell = document.getElementById("page-shell");
-    const leftCanvas = document.getElementById("page-left");
-    const rightCanvas = document.getElementById("page-right");
-    const leftCtx = leftCanvas.getContext("2d");
-    const rightCtx = rightCanvas.getContext("2d");
 
-    let pdfDoc = null;
     let spreadIndex = 0;
     let singlePage = 1;
-    let renderToken = 0;
-    let lastModeSingle = false;
-    const activeRenderTasks = new Set();
 
-    const isCancelled = (error) => error && error.name === "RenderingCancelledException";
+    const singleView = () => window.matchMedia("(max-width: 900px)").matches;
 
-    const cancelActiveRenders = async () => {
-      const tasks = Array.from(activeRenderTasks);
-      activeRenderTasks.clear();
-      tasks.forEach((task) => task.cancel());
-      await Promise.all(tasks.map((task) => task.promise.catch(() => {})));
+    // Book layout: the cover sits alone on the right, then pages pair up.
+    const leftPageOf = (i) => (i === 0 ? null : i * 2);
+    const rightPageOf = (i) => (i === 0 ? 1 : i * 2 + 1);
+    const maxSpread = () => Math.floor(TOTAL / 2);
+
+    const minIndex = () => (singleView() ? 1 : 0);
+    const maxIndex = () => (singleView() ? TOTAL : maxSpread());
+    const currentIndex = () => (singleView() ? singlePage : spreadIndex);
+    const setIndex = (v) => {
+      const clamped = Math.max(minIndex(), Math.min(v, maxIndex()));
+      if (singleView()) singlePage = clamped;
+      else spreadIndex = clamped;
     };
 
-    const screenSingle = () => window.matchMedia("(max-width: 900px)").matches;
-    const useSingleView = () => screenSingle();
-
-    const getGap = () => {
-      const gapValue = getComputedStyle(pageShell).getPropertyValue("--page-gap");
-      const gap = parseFloat(gapValue);
-      return Number.isFinite(gap) ? gap : 0;
+    // Serve the half-size variant when that is all the display can resolve.
+    const srcFor = (page, cssWidth) => {
+      const needed = cssWidth * (window.devicePixelRatio || 1);
+      const variant = needed <= SMALL_SRC_WIDTH ? "-sm" : "";
+      return "pages/" + String(page).padStart(2, "0") + variant + ".webp";
     };
 
-    const maxSpreadIndex = () => Math.floor((pdfDoc?.numPages || 0) / 2);
-    const getLeftPage = () => spreadIndex * 2;
-    const getRightPage = () => getLeftPage() + 1;
-
-    const syncMode = () => {
-      const nowSingle = useSingleView();
-      if (nowSingle !== lastModeSingle) {
-        if (nowSingle) {
-          singlePage = Math.max(1, getLeftPage());
-        } else {
-          spreadIndex = Math.floor(singlePage / 2);
-        }
-        lastModeSingle = nowSingle;
-      }
+    const layout = () => {
+      const single = singleView();
+      spread.classList.toggle("single", single);
+      const cols = single ? 1 : 2;
+      const ratio = (cols * PAGE_W) / PAGE_H;
+      const W = stage.clientWidth;
+      const H = stage.clientHeight;
+      // Contain: fit the height, fall back to the width on narrow windows.
+      let h = H;
+      let w = h * ratio;
+      if (w > W) { w = W; h = w / ratio; }
+      spread.style.width = Math.round(w) + "px";
+      spread.style.height = Math.round(h) + "px";
+      return w / cols;   // css width of one page
     };
 
-    const renderBlank = (canvas, width, height) => {
-      const outputScale = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.floor(width * outputScale));
-      canvas.height = Math.max(1, Math.floor(height * outputScale));
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-      const ctx = canvas.getContext("2d");
-      ctx.save();
-      ctx.scale(outputScale, outputScale);
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, width, height);
-      ctx.restore();
-    };
-
-    const renderPage = async (pageNumber, canvas, ctx, box) => {
-      const page = await pdfDoc.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 1 });
-      // Contain: fit within both dimensions so a whole page is always on screen.
-      const scale = Math.min(box.width / viewport.width, box.height / viewport.height);
-      const outputScale = window.devicePixelRatio || 1;
-      const scaledViewport = page.getViewport({ scale: scale * outputScale });
-
-      canvas.width = Math.floor(scaledViewport.width);
-      canvas.height = Math.floor(scaledViewport.height);
-      canvas.style.width = `${scaledViewport.width / outputScale}px`;
-      canvas.style.height = `${scaledViewport.height / outputScale}px`;
-
-      const task = page.render({ canvasContext: ctx, viewport: scaledViewport });
-      activeRenderTasks.add(task);
-      try {
-        await task.promise;
-      } finally {
-        activeRenderTasks.delete(task);
-      }
-
-      return {
-        width: scaledViewport.width / outputScale,
-        height: scaledViewport.height / outputScale,
-      };
-    };
-
-    const updateControls = () => {
-      const totalPages = pdfDoc?.numPages || 0;
-      const singleMode = useSingleView();
-      const atStart = singleMode ? singlePage <= 1 : spreadIndex <= 0;
-      const atEnd = singleMode ? singlePage >= totalPages : spreadIndex >= maxSpreadIndex();
-
-      prevBtn.disabled = atStart;
-      nextBtn.disabled = atEnd;
-
-      if (!totalPages) {
-        statusEl.textContent = "Loading…";
+    // Resolves once the bytes are in. Deliberately driven by the load event
+    // rather than img.decode(): decode() only settles when the image is ready
+    // to *paint*, so in a background or occluded tab it can hang indefinitely
+    // on an image that has already fully loaded, which would leave the spinner
+    // up and the controls dead.
+    const whenReady = (img) => new Promise((resolve) => {
+      if (img.complete && img.naturalWidth) {
+        resolve();
         return;
       }
-
-      if (singleMode) {
-        statusEl.textContent = `Page ${singlePage} of ${totalPages}`;
-      } else {
-        const leftPage = getLeftPage();
-        const rightPage = Math.min(getRightPage(), totalPages);
-        statusEl.textContent = `Pages ${leftPage}-${rightPage} of ${totalPages}`;
-      }
-    };
-
-    const renderSpread = async () => {
-      if (!pdfDoc) return;
-      const token = ++renderToken;
-      loadingEl.textContent = "Loading portfolio…";
-      loadingEl.classList.add("is-visible");
-
-      await cancelActiveRenders();
-      if (token !== renderToken) return;
-
-      let failed = false;
-      try {
-        syncMode();
-        const singleMode = useSingleView();
-        pageShell.classList.toggle("single", singleMode);
-
-        const gap = getGap();
-        const availableWidth = pageShell.clientWidth - (singleMode ? 0 : gap);
-        const pageBox = {
-          width: Math.max(1, singleMode ? availableWidth : availableWidth / 2),
-          height: Math.max(1, pageShell.clientHeight),
-        };
-
-        if (singleMode) {
-          rightCanvas.classList.add("is-hidden");
-          await renderPage(singlePage, leftCanvas, leftCtx, pageBox);
-          if (token !== renderToken) return;
-        } else {
-          rightCanvas.classList.remove("is-hidden");
-          const leftPageNumber = getLeftPage();
-          const rightPageNumber = getRightPage();
-
-          if (leftPageNumber === 0) {
-            const rightSize = await renderPage(rightPageNumber, rightCanvas, rightCtx, pageBox);
-            if (token !== renderToken) return;
-            renderBlank(leftCanvas, rightSize.width, rightSize.height);
-          } else {
-            const leftSize = await renderPage(leftPageNumber, leftCanvas, leftCtx, pageBox);
-            if (token !== renderToken) return;
-            if (rightPageNumber <= pdfDoc.numPages) {
-              await renderPage(rightPageNumber, rightCanvas, rightCtx, pageBox);
-              if (token !== renderToken) return;
-            } else {
-              renderBlank(rightCanvas, leftSize.width, leftSize.height);
-            }
-          }
-        }
-
-        updateControls();
-      } catch (error) {
-        if (isCancelled(error)) return;
-        console.error(error);
-        failed = true;
-        loadingEl.textContent = "Unable to display this page. Please use the Open PDF link.";
-      } finally {
-        if (token === renderToken && !failed) {
-          loadingEl.classList.remove("is-visible");
-        }
-      }
-    };
-
-    const clampState = () => {
-      if (!pdfDoc) return;
-      if (useSingleView()) {
-        singlePage = Math.max(1, Math.min(singlePage, pdfDoc.numPages));
-      } else {
-        spreadIndex = Math.max(0, Math.min(spreadIndex, maxSpreadIndex()));
-      }
-    };
-
-    prevBtn.addEventListener("click", () => {
-      if (useSingleView()) {
-        singlePage -= 1;
-      } else {
-        spreadIndex -= 1;
-      }
-      clampState();
-      renderSpread();
+      const done = () => {
+        img.removeEventListener("load", done);
+        img.removeEventListener("error", done);
+        resolve();
+      };
+      img.addEventListener("load", done);
+      img.addEventListener("error", done);
     });
 
-    nextBtn.addEventListener("click", () => {
-      if (useSingleView()) {
-        singlePage += 1;
-      } else {
-        spreadIndex += 1;
+    const setPage = (img, page, cssWidth) => {
+      if (!page || page > TOTAL) {
+        img.removeAttribute("src");
+        img.classList.add("is-blank");
+        img.alt = "";
+        return null;
       }
-      clampState();
-      renderSpread();
+      img.classList.remove("is-blank");
+      img.alt = "Portfolio page " + page;
+      const src = srcFor(page, cssWidth);
+      if (img.getAttribute("src") !== src) img.src = src;
+      // Worth asking for an early decode, but never worth waiting on.
+      if (img.decode) img.decode().catch(() => {});
+      return whenReady(img);
+    };
+
+    const label = () => {
+      if (singleView()) return "Page " + singlePage + " of " + TOTAL;
+      const l = leftPageOf(spreadIndex);
+      const r = Math.min(rightPageOf(spreadIndex), TOTAL);
+      if (l === null) return "Page " + r + " of " + TOTAL;
+      if (l >= TOTAL) return "Page " + TOTAL + " of " + TOTAL;
+      return l === r ? "Page " + l + " of " + TOTAL
+                     : "Pages " + l + "–" + r + " of " + TOTAL;
+    };
+
+    const preload = (cssWidth) => {
+      const wanted = [];
+      if (singleView()) {
+        wanted.push(singlePage + 1, singlePage - 1);
+      } else {
+        [spreadIndex + 1, spreadIndex - 1].forEach((i) => {
+          if (i >= 0 && i <= maxSpread()) wanted.push(leftPageOf(i), rightPageOf(i));
+        });
+      }
+      wanted
+        .filter((p) => p && p >= 1 && p <= TOTAL)
+        .forEach((p) => { new Image().src = srcFor(p, cssWidth); });
+    };
+
+    let spinnerTimer = null;
+    const render = async () => {
+      const cssWidth = layout();
+      // Only show the spinner if decoding is slow enough to be noticed.
+      clearTimeout(spinnerTimer);
+      spinnerTimer = setTimeout(() => spinner.classList.add("is-visible"), 180);
+
+      const jobs = singleView()
+        ? [setPage(leftImg, singlePage, cssWidth), setPage(rightImg, null, cssWidth)]
+        : [setPage(leftImg, leftPageOf(spreadIndex), cssWidth),
+           setPage(rightImg, rightPageOf(spreadIndex), cssWidth)];
+      // A stalled or failed image must never wedge the controls, so cap the
+      // wait and carry on regardless.
+      await Promise.race([
+        Promise.all(jobs.filter(Boolean)),
+        new Promise((r) => setTimeout(r, 3000)),
+      ]);
+
+      clearTimeout(spinnerTimer);
+      spinner.classList.remove("is-visible");
+      statusEl.textContent = label();
+      prevBtn.disabled = currentIndex() <= minIndex();
+      nextBtn.disabled = currentIndex() >= maxIndex();
+      preload(cssWidth);
+    };
+
+    const step = (delta) => { setIndex(currentIndex() + delta); render(); };
+
+    prevBtn.addEventListener("click", () => step(-1));
+    nextBtn.addEventListener("click", () => step(1));
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); step(1); }
+      if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); step(-1); }
+      if (e.key === "Home") { e.preventDefault(); setIndex(-Infinity); render(); }
+      if (e.key === "End") { e.preventDefault(); setIndex(Infinity); render(); }
     });
 
-    window.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowRight") {
-        nextBtn.click();
-      }
-      if (event.key === "ArrowLeft") {
-        prevBtn.click();
-      }
-    });
+    // Swipe on touch devices.
+    let touchX = null;
+    stage.addEventListener("touchstart", (e) => { touchX = e.changedTouches[0].clientX; }, { passive: true });
+    stage.addEventListener("touchend", (e) => {
+      if (touchX === null) return;
+      const dx = e.changedTouches[0].clientX - touchX;
+      if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1);
+      touchX = null;
+    }, { passive: true });
 
     let resizeTimer = null;
+    let wasSingle = singleView();
     window.addEventListener("resize", () => {
-      if (resizeTimer) window.clearTimeout(resizeTimer);
-      resizeTimer = window.setTimeout(() => {
-        syncMode();
-        clampState();
-        renderSpread();
+      layout();   // keep the frame correct straight away
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        const nowSingle = singleView();
+        if (nowSingle !== wasSingle) {
+          // Carry the reader's place across the mode switch.
+          if (nowSingle) singlePage = Math.max(1, leftPageOf(spreadIndex) || 1);
+          else spreadIndex = Math.floor(singlePage / 2);
+          wasSingle = nowSingle;
+        }
+        render();
       }, 150);
     });
 
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    pdfjsLib.getDocument(pdfUrl).promise
-      .then((pdf) => {
-        pdfDoc = pdf;
-        spreadIndex = 0;
-        singlePage = 1;
-        lastModeSingle = useSingleView();
-        clampState();
-        renderSpread();
-      })
-      .catch((error) => {
-        console.error(error);
-        loadingEl.textContent = "Unable to load the portfolio. Please use the Open PDF link.";
-      });
+    render();
   </script>
 </body>
 </html>
-

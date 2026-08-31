@@ -1,14 +1,11 @@
-﻿:root {
+:root {
   --bg: #000000;
-  --bg-elevated: #000000;
-  --page: #ffffff;
   --ink: #f5f5f5;
-  --muted: #b3b3b3;
+  --muted: #9a9a9a;
   --accent: #d7a46c;
-  --radius: 0px;
-  --page-gap: 0px;
-  --body-font: "Work Sans", sans-serif;
-  --heading-font: "Libre Caslon Text", serif;
+  --body-font: "Work Sans", system-ui, sans-serif;
+  --heading-font: "Libre Caslon Text", Georgia, serif;
+  --stage-pad: 14px;
 }
 
 * {
@@ -17,192 +14,220 @@
   padding: 0;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   font-family: var(--body-font);
   color: var(--ink);
   background: var(--bg);
-  height: 100vh;
   overflow: hidden;
 }
 
-/* Fixed-height shell: header and footer size to content, the book takes the
-   rest. Nothing scrolls -- a whole page is always on screen. */
+/* The viewer owns the whole viewport. Chrome floats over it rather than
+   taking a layout row, so the page itself gets the full height. */
 .viewer {
-  height: 100vh;
-  height: 100dvh;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 16px;
-  padding: 20px 24px 14px;
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
 }
 
-.viewer-header {
+.stage {
+  position: absolute;
+  inset: var(--stage-pad);
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
+  align-items: center;
+  justify-content: center;
 }
 
-.title h1 {
-  font-family: var(--heading-font);
-  font-size: clamp(2.2rem, 3vw, 3rem);
-  letter-spacing: 0.02em;
+/* JS sizes the spread to fit the stage; the pages just divide it. */
+.spread {
+  display: flex;
+  gap: 0;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.9);
+}
+
+.page {
+  width: 50%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: transparent;
+  opacity: 1;
+  transition: opacity 0.18s ease;
+}
+
+.spread.single .page {
+  width: 100%;
+}
+
+.spread.single .page.is-blank {
+  display: none;
+}
+
+/* The blank facing the cover: keep the space, show nothing. */
+.page.is-blank {
+  visibility: hidden;
+}
+
+/* --- floating chrome ------------------------------------------------- */
+
+.brand {
+  position: absolute;
+  top: 22px;
+  left: 26px;
+  pointer-events: none;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.9);
 }
 
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.3em;
-  font-size: 0.75rem;
+  font-size: 0.62rem;
   color: var(--muted);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
+.brand h1 {
+  font-family: var(--heading-font);
+  font-size: clamp(1.1rem, 1.6vw, 1.6rem);
+  font-weight: 400;
+  letter-spacing: 0.02em;
 }
 
-.control-btn,
-.control-link {
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: transparent;
-  color: var(--ink);
-  font-size: 0.85rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 10px 18px;
-  text-decoration: none;
-  cursor: pointer;
-  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-}
-
-.control-btn:hover,
-.control-link:hover,
-.control-btn:focus-visible,
-.control-link:focus-visible {
-  border-color: var(--accent);
-  transform: translateY(-1px);
-}
-
-.control-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.status {
-  font-size: 0.9rem;
-  color: var(--muted);
-}
-
-.book {
-  position: relative;
-  background: transparent;
-  padding: 0;
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.page-shell {
-  background: transparent;
-  border-radius: 0;
-  padding: 0;
-  display: flex;
-  gap: var(--page-gap);
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-}
-
-.page-shell::before {
-  display: none;
-}
-
-.page-shell.single {
-  gap: 0;
-}
-
-canvas {
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
-  /* JS sizes each canvas to fit the viewport. While a re-render is still in
-     flight the canvas can briefly hold its previous size; contain letterboxes
-     it instead of squashing the page out of its A3 ratio. */
-  object-fit: contain;
-  display: block;
-  background: transparent;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-canvas.is-hidden {
-  display: none;
-}
-
-canvas.is-empty {
-  opacity: 0.5;
-}
-
-.loading {
+/* Arrows live in the margin the page cannot use, so they cost no page size. */
+.nav {
   position: absolute;
-  inset: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--ink);
+  cursor: pointer;
+  transition: opacity 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.nav-prev { left: 18px; }
+.nav-next { right: 18px; }
+
+/* Chevrons, drawn rather than typed, so they stay centred at any font. */
+.nav::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+}
+
+.nav-prev::before { transform: translate(-40%, -50%) rotate(135deg); }
+.nav-next::before { transform: translate(-60%, -50%) rotate(-45deg); }
+
+.nav:hover:not(:disabled),
+.nav:focus-visible:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.nav:disabled {
+  opacity: 0.22;
+  cursor: default;
+}
+
+.hud {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 1rem;
-  letter-spacing: 0.18em;
+  gap: 14px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(10px);
+  white-space: nowrap;
+}
+
+.counter {
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.hud-link {
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  background: rgba(0, 0, 0, 0.75);
   color: var(--ink);
+  text-decoration: none;
+}
+
+.hud-link:hover,
+.hud-link:focus-visible {
+  color: var(--accent);
+}
+
+.spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
 }
 
-.loading.is-visible {
+.spinner.is-visible {
   opacity: 1;
-  pointer-events: auto;
+  animation: spin 0.8s linear infinite;
 }
 
-.viewer-footer {
-  color: var(--muted);
-  text-align: center;
-  font-size: 0.85rem;
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-@media (max-width: 600px) {
-  .viewer {
-    padding: 14px 14px 10px;
-    gap: 10px;
+@media (prefers-reduced-motion: reduce) {
+  .page,
+  .spinner { transition: none; }
+  .spinner.is-visible { animation: none; }
+}
+
+/* On phones the arrows would sit on top of the page, so swipe and the HUD
+   carry navigation instead. */
+@media (max-width: 900px) {
+  :root { --stage-pad: 8px; }
+
+  .nav { display: none; }
+
+  .brand {
+    top: 12px;
+    left: 14px;
   }
 
-  .controls {
-    width: 100%;
-  }
-
-  .status {
-    width: 100%;
-  }
-
-  /* The hint mentions arrow keys, which do not exist on touch, and it costs
-     roughly 15% of the height a page could otherwise use. */
-  .viewer-footer {
-    display: none;
-  }
-
-  .viewer {
-    grid-template-rows: auto 1fr;
+  .hud {
+    bottom: 12px;
+    gap: 11px;
+    padding: 8px 15px;
   }
 }
