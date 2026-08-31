@@ -46,6 +46,7 @@
     const TOTAL = 41;
     const PAGE_W = 841.89;   // A3 portrait, in points
     const PAGE_H = 1190.55;
+    const SPREAD_RATIO = (2 * PAGE_W) / PAGE_H;   // always two pages wide
     const SMALL_SRC_WIDTH = 877;   // pixel width of the -sm variant
 
     const stage = document.getElementById("stage");
@@ -58,37 +59,14 @@
     const nextBtn = document.getElementById("next");
 
     let spreadIndex = 0;
-    let singlePage = 1;
-
-    const singleView = () => window.matchMedia("(max-width: 900px)").matches;
 
     // Book layout: the cover sits alone on the right, then pages pair up.
     const leftPageOf = (i) => (i === 0 ? null : i * 2);
     const rightPageOf = (i) => (i === 0 ? 1 : i * 2 + 1);
     const maxSpread = () => Math.floor(TOTAL / 2);
-    const spreadOf = (page) => (page <= 1 ? 0 : Math.floor(page / 2));
-    const pagesOf = (i) => [leftPageOf(i), rightPageOf(i)].filter((p) => p && p <= TOTAL);
 
-    // Keep the two modes pointing at the same page. Without this, switching
-    // modes snaps to the left page of the spread and quietly loses the
-    // reader's place every time the window crosses the breakpoint.
-    const syncToSpread = () => {
-      const pages = pagesOf(spreadIndex);
-      if (!pages.includes(singlePage)) singlePage = pages[0] || 1;
-    };
-
-    const minIndex = () => (singleView() ? 1 : 0);
-    const maxIndex = () => (singleView() ? TOTAL : maxSpread());
-    const currentIndex = () => (singleView() ? singlePage : spreadIndex);
     const setIndex = (v) => {
-      const clamped = Math.max(minIndex(), Math.min(v, maxIndex()));
-      if (singleView()) {
-        singlePage = clamped;
-        spreadIndex = spreadOf(clamped);
-      } else {
-        spreadIndex = clamped;
-        syncToSpread();
-      }
+      spreadIndex = Math.max(0, Math.min(v, maxSpread()));
     };
 
     // Serve the half-size variant when that is all the display can resolve.
@@ -99,19 +77,16 @@
     };
 
     const layout = () => {
-      const single = singleView();
-      spread.classList.toggle("single", single);
-      const cols = single ? 1 : 2;
-      const ratio = (cols * PAGE_W) / PAGE_H;
       const W = stage.clientWidth;
       const H = stage.clientHeight;
-      // Contain: fit the height, fall back to the width on narrow windows.
+      // Contain: fit the height, fall back to the width when the window is
+      // narrower than the spread's fixed 1.41:1 shape.
       let h = H;
-      let w = h * ratio;
-      if (w > W) { w = W; h = w / ratio; }
+      let w = h * SPREAD_RATIO;
+      if (w > W) { w = W; h = w / SPREAD_RATIO; }
       spread.style.width = Math.round(w) + "px";
       spread.style.height = Math.round(h) + "px";
-      return w / cols;   // css width of one page
+      return w / 2;   // css width of one page
     };
 
     // Resolves once the bytes are in. Deliberately driven by the load event
@@ -150,7 +125,6 @@
     };
 
     const label = () => {
-      if (singleView()) return "Page " + singlePage + " of " + TOTAL;
       const l = leftPageOf(spreadIndex);
       const r = Math.min(rightPageOf(spreadIndex), TOTAL);
       if (l === null) return "Page " + r + " of " + TOTAL;
@@ -160,15 +134,9 @@
     };
 
     const preload = (cssWidth) => {
-      const wanted = [];
-      if (singleView()) {
-        wanted.push(singlePage + 1, singlePage - 1);
-      } else {
-        [spreadIndex + 1, spreadIndex - 1].forEach((i) => {
-          if (i >= 0 && i <= maxSpread()) wanted.push(leftPageOf(i), rightPageOf(i));
-        });
-      }
-      wanted
+      [spreadIndex + 1, spreadIndex - 1]
+        .filter((i) => i >= 0 && i <= maxSpread())
+        .flatMap((i) => [leftPageOf(i), rightPageOf(i)])
         .filter((p) => p && p >= 1 && p <= TOTAL)
         .forEach((p) => { new Image().src = srcFor(p, cssWidth); });
     };
@@ -180,10 +148,10 @@
       clearTimeout(spinnerTimer);
       spinnerTimer = setTimeout(() => spinner.classList.add("is-visible"), 180);
 
-      const jobs = singleView()
-        ? [setPage(leftImg, singlePage, cssWidth), setPage(rightImg, null, cssWidth)]
-        : [setPage(leftImg, leftPageOf(spreadIndex), cssWidth),
-           setPage(rightImg, rightPageOf(spreadIndex), cssWidth)];
+      const jobs = [
+        setPage(leftImg, leftPageOf(spreadIndex), cssWidth),
+        setPage(rightImg, rightPageOf(spreadIndex), cssWidth),
+      ];
       // A stalled or failed image must never wedge the controls, so cap the
       // wait and carry on regardless.
       await Promise.race([
@@ -194,12 +162,12 @@
       clearTimeout(spinnerTimer);
       spinner.classList.remove("is-visible");
       statusEl.textContent = label();
-      prevBtn.disabled = currentIndex() <= minIndex();
-      nextBtn.disabled = currentIndex() >= maxIndex();
+      prevBtn.disabled = spreadIndex <= 0;
+      nextBtn.disabled = spreadIndex >= maxSpread();
       preload(cssWidth);
     };
 
-    const step = (delta) => { setIndex(currentIndex() + delta); render(); };
+    const step = (delta) => { setIndex(spreadIndex + delta); render(); };
 
     prevBtn.addEventListener("click", () => step(-1));
     nextBtn.addEventListener("click", () => step(1));
@@ -207,8 +175,8 @@
     window.addEventListener("keydown", (e) => {
       if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); step(1); }
       if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); step(-1); }
-      if (e.key === "Home") { e.preventDefault(); setIndex(-Infinity); render(); }
-      if (e.key === "End") { e.preventDefault(); setIndex(Infinity); render(); }
+      if (e.key === "Home") { e.preventDefault(); setIndex(0); render(); }
+      if (e.key === "End") { e.preventDefault(); setIndex(maxSpread()); render(); }
     });
 
     // Swipe on touch devices.
@@ -222,20 +190,10 @@
     }, { passive: true });
 
     let resizeTimer = null;
-    let wasSingle = singleView();
     window.addEventListener("resize", () => {
       layout();   // keep the frame correct straight away
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        const nowSingle = singleView();
-        if (nowSingle !== wasSingle) {
-          // Carry the reader's place across the mode switch.
-          if (nowSingle) syncToSpread();
-          else spreadIndex = spreadOf(singlePage);
-          wasSingle = nowSingle;
-        }
-        render();
-      }, 150);
+      resizeTimer = setTimeout(render, 150);
     });
 
     render();

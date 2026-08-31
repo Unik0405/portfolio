@@ -64,14 +64,6 @@ body {
   transition: opacity 0.18s ease;
 }
 
-.spread.single .page {
-  width: 100%;
-}
-
-.spread.single .page.is-blank {
-  display: none;
-}
-
 /* The blank facing the cover: keep the space, show nothing. */
 .page.is-blank {
   visibility: hidden;
