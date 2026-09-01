@@ -18,6 +18,20 @@
       <div class="spread" id="spread">
         <img class="page" id="page-left" alt="" decoding="async" />
         <img class="page" id="page-right" alt="" decoding="async" />
+
+        <!-- The turning sheet. Its front is the page you are leaving and its
+             back is the page you are turning to, hinged at the spine, exactly
+             as the two sides of one leaf of paper. -->
+        <div class="flip" id="flip" aria-hidden="true">
+          <div class="flip-face flip-front">
+            <img id="flip-front-img" alt="" decoding="async" />
+            <div class="flip-shade" id="flip-front-shade"></div>
+          </div>
+          <div class="flip-face flip-back">
+            <img id="flip-back-img" alt="" decoding="async" />
+            <div class="flip-shade" id="flip-back-shade"></div>
+          </div>
+        </div>
       </div>
       <div class="spinner" id="spinner" aria-hidden="true"></div>
     </div>
@@ -86,6 +100,10 @@
       if (w > W) { w = W; h = w / SPREAD_RATIO; }
       spread.style.width = Math.round(w) + "px";
       spread.style.height = Math.round(h) + "px";
+      // Tie the vanishing point to the spread's own size, so the turn reads
+      // identically on a phone and on a 27" display. Kept deliberately distant:
+      // a nearer one balloons the leaf's near edge far outside the spread.
+      spread.style.perspective = Math.round(w * 4) + "px";
       return w / 2;   // css width of one page
     };
 
@@ -328,7 +346,139 @@
       zoomAbout(e.clientX, e.clientY, scale * (1 - e.deltaY * 0.01));
     }, { passive: false });
 
-    const step = (delta) => { resetZoom(); setIndex(spreadIndex + delta); render(); };
+    /* --- the page turn ---------------------------------------------------
+       A leaf of paper carries two pages: turning forward, the right-hand page
+       (2i+1) swings left about the spine and its back (2i+2) lands as the new
+       left page. The newly uncovered half is filled in first, so it is already
+       there as the leaf lifts off it. */
+
+    const flipEl = document.getElementById("flip");
+    const flipFrontImg = document.getElementById("flip-front-img");
+    const flipBackImg = document.getElementById("flip-back-img");
+    const flipFrontShade = document.getElementById("flip-front-shade");
+    const flipBackShade = document.getElementById("flip-back-shade");
+
+    const FLIP_MS = 620;
+    const FLIP_EASE = "cubic-bezier(0.34, 0.02, 0.2, 1)";
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    let currentAnim = null;
+    let flipDone = null;
+
+    const setFace = (img, page, cssWidth) => {
+      if (!page || page < 1 || page > TOTAL) {
+        img.removeAttribute("src");
+        img.style.visibility = "hidden";
+        return null;
+      }
+      img.style.visibility = "";
+      const src = srcFor(page, cssWidth);
+      if (img.getAttribute("src") !== src) img.src = src;
+      return whenReady(img);
+    };
+
+    const flipTo = async (target, forward, cssWidth) => {
+      const frontPage = forward ? rightPageOf(spreadIndex) : leftPageOf(spreadIndex);
+      const backPage = forward ? leftPageOf(target) : rightPageOf(target);
+      const underImg = forward ? rightImg : leftImg;
+      const underPage = forward ? rightPageOf(target) : leftPageOf(target);
+
+      const jobs = [
+        setFace(flipFrontImg, frontPage, cssWidth),
+        setFace(flipBackImg, backPage, cssWidth),
+        setPage(underImg, underPage, cssWidth),
+      ].filter(Boolean);
+
+      // A slow image must never stall the turn; it is preloaded in any case.
+      await Promise.race([
+        Promise.all(jobs),
+        new Promise((r) => setTimeout(r, 400)),
+      ]);
+
+      flipEl.classList.remove("dir-next", "dir-prev");
+      flipEl.classList.add(forward ? "dir-next" : "dir-prev", "is-active");
+      stage.classList.add("is-turning");
+
+      const opts = { duration: FLIP_MS, easing: FLIP_EASE, fill: "forwards" };
+      const half = forward ? -90 : 90;
+      const end = forward ? -180 : 180;
+      // The dip counteracts the perspective bulge, which would otherwise push
+      // the leaf's near edge past the top and bottom of the spread, and reads
+      // as the page lifting away from the reader.
+      const anim = flipEl.animate(
+        [{ transform: "rotateY(0deg) scale(1)" },
+         { transform: "rotateY(" + half + "deg) scale(0.93)", offset: 0.5 },
+         { transform: "rotateY(" + end + "deg) scale(1)" }],
+        opts
+      );
+      currentAnim = anim;
+
+      // The leaf darkens as it turns edge-on to the light, and recovers as the
+      // far side comes round.
+      const shadeA = flipFrontShade.animate(
+        [{ opacity: 0 }, { opacity: 0.32, offset: 0.55 }, { opacity: 0.4 }], opts);
+      const shadeB = flipBackShade.animate(
+        [{ opacity: 0.4 }, { opacity: 0.32, offset: 0.45 }, { opacity: 0 }], opts);
+
+      // A backgrounded tab stops ticking animations, so `finished` can hang
+      // indefinitely on a turn that will never advance. Cap the wait: the state
+      // below is what actually matters, and the leaf is hidden either way.
+      await Promise.race([
+        anim.finished.catch(() => {}),
+        new Promise((r) => setTimeout(r, FLIP_MS + 400)),
+      ]);
+
+      // Swap the real pages in behind the leaf, then take the leaf away, so
+      // the change is never visible.
+      spreadIndex = target;
+      await render();
+      flipEl.classList.remove("is-active");
+      stage.classList.remove("is-turning");
+      [anim, shadeA, shadeB].forEach((a) => a.cancel());
+    };
+
+    const step = async (delta) => {
+      // Someone clicking faster than the turn shouldn't be made to wait: cut
+      // the running one short and pick up from there. The target has to be
+      // worked out *after* that settles — computing it up front would measure
+      // from a stale index, so a burst of clicks would collapse onto the same
+      // spread and animate turns that go nowhere.
+      if (flipDone) {
+        if (currentAnim) currentAnim.finish();
+        try { await flipDone; } catch (err) { /* superseded */ }
+      }
+
+      const target = Math.max(0, Math.min(spreadIndex + delta, maxSpread()));
+      if (target === spreadIndex) return;
+
+      resetZoom();
+      const cssWidth = layout();
+
+      if (reduceMotion.matches) {
+        setIndex(target);
+        await render();
+        return;
+      }
+
+      flipDone = flipTo(target, delta > 0, cssWidth);
+      try {
+        await flipDone;
+      } finally {
+        flipDone = null;
+        currentAnim = null;
+      }
+    };
+
+    // Home/End jump rather than turn; cancel any leaf mid-air first.
+    const jumpTo = async (index) => {
+      if (flipDone) {
+        if (currentAnim) currentAnim.finish();
+        try { await flipDone; } catch (err) { /* superseded */ }
+      }
+      resetZoom();
+      setIndex(index);
+      await render();
+    };
 
     prevBtn.addEventListener("click", () => step(-1));
     nextBtn.addEventListener("click", () => step(1));
@@ -336,8 +486,8 @@
     window.addEventListener("keydown", (e) => {
       if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); step(1); }
       if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); step(-1); }
-      if (e.key === "Home") { e.preventDefault(); resetZoom(); setIndex(0); render(); }
-      if (e.key === "End") { e.preventDefault(); resetZoom(); setIndex(maxSpread()); render(); }
+      if (e.key === "Home") { e.preventDefault(); jumpTo(0); }
+      if (e.key === "End") { e.preventDefault(); jumpTo(maxSpread()); }
       if (e.key === "Escape") { e.preventDefault(); resetZoom(); }
     });
 
