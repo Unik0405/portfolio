@@ -47,17 +47,91 @@ body {
   justify-content: center;
   /* Clip the spread when it is zoomed past its own box. */
   overflow: hidden;
+  /* Perspective makes the near edge of a turning leaf rise well outside the
+     spread's own box, so the clip has to lift while a page is turning. Zoom
+     is always reset before a turn, so the two never need it at once. */
   /* Claim the gestures: pinch, pan and swipe are all handled in script. */
   touch-action: none;
 }
 
 /* JS sizes the spread to fit the stage; the pages just divide it. */
 .spread {
+  position: relative;
   display: flex;
   gap: 0;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.9);
   transform-origin: center center;
   will-change: transform;
+  /* JS sets perspective from the spread width so the turn reads the same at
+     every size; a fixed value looks flat when small and violent when large. */
+}
+
+/* --- the turning sheet ------------------------------------------------- */
+
+.flip {
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 100%;
+  transform-style: preserve-3d;
+  pointer-events: none;
+  visibility: hidden;
+  z-index: 2;
+}
+
+.flip.is-active {
+  visibility: visible;
+}
+
+.stage.is-turning {
+  overflow: visible;
+}
+
+/* Turning forward, the sheet is the right-hand page hinged on its left edge;
+   turning back, it is the left-hand page hinged on its right. */
+.flip.dir-next {
+  left: 50%;
+  transform-origin: left center;
+}
+
+.flip.dir-prev {
+  left: 0;
+  transform-origin: right center;
+}
+
+.flip-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.flip-front { transform: rotateY(0deg); }
+.flip-back  { transform: rotateY(180deg); }
+
+.flip-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* Darkens as the leaf turns away from the light, so the sheet reads as
+   paper with a thickness rather than a flat rotating rectangle. */
+.flip-shade {
+  position: absolute;
+  inset: 0;
+  background: #000000;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flip { display: none; }
 }
 
 .spread.is-zoomed {
